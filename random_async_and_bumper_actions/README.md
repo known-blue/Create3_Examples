@@ -1,4 +1,4 @@
-# Simple Action Example
+# Bumper Subscription Example
 This directory contains a custom ROS2 package which, when run demonstrates using actions to:
 
 1. Undock robot
