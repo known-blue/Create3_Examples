@@ -17,7 +17,6 @@ from threading import Lock
 from rclpy.executors import MultiThreadedExecutor
 
 import random
-import time
 
 # To help with Multithreading
 lock = Lock()
@@ -32,7 +31,7 @@ class Slash(Node):
 
         # 2 Seperate Callback Groups for handling the bumper Subscription and Action Clients
         cb_Subscripion = MutuallyExclusiveCallbackGroup()
-        cb_Action =MutuallyExclusiveCallbackGroup()
+        cb_Action = MutuallyExclusiveCallbackGroup()
 
         # Subscription to Hazards, the callback function attached only looks for bumper hits
         self.subscription = self.create_subscription(
@@ -254,16 +253,21 @@ class Slash(Node):
             self.DoWalk(i)
 
     # Navigate back to Dock
-        # Return (roughly) to pose capture
-        while self._bump == 1:
-            pass # If bump callback is running, wait for that to be done first
-        nav_goal = NavigateToPosition.Goal()
-        nav_goal.goal_pose = self._pose
+        while True:
+            # Return (roughly) to pose capture
+            while self._bump == 1:
+                pass # If bump callback is running, wait for that to be done first
+            nav_goal = NavigateToPosition.Goal()
+            nav_goal.goal_pose = self._pose
 
-        self.get_logger().warning('RETURNING TO DOCK')
-        while self._bump == 1:
-            pass # If bump callback is running, wait for that to be done first
-        self._nav_ac.send_goal(nav_goal)
+            self.get_logger().warning('RETURNING TO DOCK')
+            while self._bump == 1:
+                pass # If bump callback is running, wait for that to be done first
+            # If bumper hit here, bumper callback will 'bully' the AC and overwrite the goal
+            self._nav_ac.send_goal(nav_goal) 
+            # Check that the goal actually completed, if not loop and try again
+            if nav_goal.remaining_travel_distance == 0 and nav_goal.remaining_angle_travel == 0:
+                break
 
     # Redock
         # create new Dock goal object to send to server
@@ -271,7 +275,7 @@ class Slash(Node):
         while self._bump == 1:
             pass # If bump callback is running, wait for that to be done first
         # send the goal (blocking)
-        self._dock_ac.send_goal(dock_goal)
+        self._dock_ac.send_goal(dock_goal) 
         self.get_logger().warning('DOCKED')
 
 
