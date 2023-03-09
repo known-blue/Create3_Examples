@@ -51,6 +51,7 @@ class Slash(Node):
         self._goal_uuid = None
         self._pose = None
         self._bump = 0
+        self._more = 1 # Feedback is not called before cancelling! This is just in case its cancelled
 
 
     def listener_callback(self, msg):
@@ -121,6 +122,14 @@ class Slash(Node):
                 
                 self.get_logger().warning('Reflex complete, going back to function')
 
+
+    def navFeedback(self,feedback):
+        # It's not super percise, if its close enough..
+        if feedback.feedback.remaining_angle_travel > 1 or feedback.feedback.remaining_travel_distance > 1:
+            self._more = 1
+        else: # Sanity check
+            self._more = 0
+        print('Feedback Angle: ', feedback.feedback.remaining_angle_travel,'Feedback Travel: ', feedback.feedback.remaining_travel_distance)
 
 #--------------------Async send goal calls-----------------------------
     def sendDriveGoal(self,goal):
@@ -201,8 +210,8 @@ class Slash(Node):
                 pass # If the bumper actions are running, dont cancel those goals! Wait to be done
         self._goal_uuid = None # Reset the goal ID, nothing should be running
         #print('cleared UUID')
+        
 #----------------------------------------------------------------------
-
 
     def randWalk(self):
         """
@@ -255,18 +264,45 @@ class Slash(Node):
     # Navigate back to Dock
         while True:
             # Return (roughly) to pose capture
-            while self._bump == 1:
-                pass # If bump callback is running, wait for that to be done first
             nav_goal = NavigateToPosition.Goal()
             nav_goal.goal_pose = self._pose
-
-            self.get_logger().warning('RETURNING TO DOCK')
             while self._bump == 1:
                 pass # If bump callback is running, wait for that to be done first
-            # If bumper hit here, bumper callback will 'bully' the AC and overwrite the goal
-            self._nav_ac.send_goal(nav_goal) 
+            self.get_logger().warning('RETURNING TO DOCK')
+            nav_handle = self._nav_ac.send_goal_async(nav_goal,feedback_callback=self.navFeedback) 
+            while not nav_handle.done():
+                    pass # Wait until Action Server accepts goal
+                
+            while not nav_handle.done():
+                pass # Wait for Action Server to accept goal
+            # print('ID gotten.')
+            self._goal_uuid = nav_handle.result() # Hold ID in case we need to cancel it
+            # print('ID Assigned.')
+            # print("lock released")
+
+            # print("idling because status is unknown.")
+            while self._goal_uuid.status == GoalStatus.STATUS_UNKNOWN:
+                pass # Wait until a Status has been assigned
+            #print(self._goal_uuid.status)
+
+            status = self._goal_uuid.status
+            # After getting goalID, block until goal is done
+            while (self._bump == 1 or(self._goal_uuid.status == GoalStatus.STATUS_EXECUTING or self._goal_uuid.status == GoalStatus.STATUS_CANCELING)):
+                # Loop while bumper actions are running or while the goal is currently running
+                if(self._goal_uuid.status is not status):
+                    #print(self._goal_uuid.status) # Print new Statuses
+                    status = self._goal_uuid.status
+
+                if self._goal_uuid is None or self._goal_uuid is GoalStatus.STATUS_CANCELED:
+                    break # If the goal is done or was canceled, stop looping
+                pass
+
+            while self._bump == 1:
+                pass # If the bumper actions are running, dont cancel those goals! Wait to be done
+            self._goal_uuid = None # Reset the goal ID, nothing should be running
+            #print('cleared UUID')
             # Check that the goal actually completed, if not loop and try again
-            if nav_goal.remaining_travel_distance == 0 and nav_goal.remaining_angle_travel == 0:
+            if not self._more:
                 break
 
     # Redock
